@@ -5,7 +5,7 @@ run it, and feed the result back until the model has a final answer.
 import json
 import os
 from openai import OpenAI
-from tools import get_sales_order
+from tools import get_sales_order, get_full_order_details
 
 # --- Model provider: swap these three lines, nothing else, to change engine ---
 # Default: Ollama, running locally, free forever, no key of any kind.
@@ -39,26 +39,57 @@ TOOLS = [
                 "required": ["sales_order_id"],
             },
         },
-    }
+
+            
+        "type": "function",
+        "function": {
+            "name": "get_full_order_details",
+            "description": "Get the line items, partners (sold-to/ship-to/bill-to/payer), and related documents (deliveries, invoices, quotations) for one SAP sales order.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sales_order_id": {
+                        "type": "string",
+                        "description": "The SAP sales order number, e.g. '1234' or '5000000000'.",
+                    }
+                },
+                "required": ["sales_order_id"],
+            },
+        },
+    },
+    
 ]
 
 SYSTEM_PROMPT = (
     "You are an SAP Order Status Agent for an Accounts Receivable team. "
-    "Answer questions about sales orders using the get_sales_order tool. "
-    "If a lookup returns found: false with NO error field, the order "
-    "genuinely doesn't exist in the system — say so plainly, don't guess. "
-    "If a lookup returns found: false WITH an error field, that's a "
+    "Use get_sales_order for questions about an order's status, type, "
+    "customer or value. Use get_full_order_details for questions about "
+    "what's IN an order (line items, materials, quantities), who's "
+    "involved (partners), or what other documents are linked to it "
+    "(related objects such as deliveries or invoices) — call both tools "
+    "if a question needs both. "
+    "Partner records use short SAP codes: AG = sold-to party, "
+    "WE = ship-to party, RE = bill-to party, RG = payer. Translate these "
+    "to plain English in your answer, never show the raw code. "
+    "If a lookup returns found: false with NO error field, the order (or "
+    "the data asked for) genuinely doesn't exist — say so plainly, don't "
+    "guess. If a lookup returns found: false WITH an error field, that's a "
     "technical problem (e.g. SAP rejected the key, or was unreachable), "
     "not a missing order — tell the user there was a problem checking SAP "
     "right now, briefly mention what went wrong, and suggest trying again "
-    "shortly. Never present a technical error as if the order simply "
-    "wasn't found. Keep answers short and business-friendly, never raw JSON."
+    "shortly. A result with a non-null 'warnings' field succeeded overall "
+    "but one part of it had a technical hiccup — mention that part "
+    "briefly, but still answer from the data that did come back. Never "
+    "present a technical error as if the order simply wasn't found. Keep "
+    "answers short and business-friendly, never raw JSON."
 )
 
 
 def run_tool(name: str, arguments: dict) -> dict:
     if name == "get_sales_order":
         return get_sales_order(arguments["sales_order_id"])
+    if name == "get_full_order_details":
+        return get_full_order_details(arguments["sales_order_id"])
     raise ValueError(f"Unknown tool: {name}")
 
 
